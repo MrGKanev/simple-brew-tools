@@ -1,5 +1,23 @@
 #!/bin/bash
 
+# Function to install Homebrew
+install_homebrew() {
+  if command -v brew &> /dev/null; then
+    echo "Homebrew is already installed."
+  else
+    echo "Installing Homebrew..."
+    /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
+    echo 'eval "$(/opt/homebrew/bin/brew shellenv)"' >> ~/.zprofile
+    eval "$(/opt/homebrew/bin/brew shellenv)"
+    if [ $? -eq 0 ]; then
+      echo "Homebrew installed successfully."
+    else
+      echo "Failed to install Homebrew. Exiting."
+      exit 1
+    fi
+  fi
+}
+
 # Function to list all installed Homebrew programs and save to a file
 list_installed_programs() {
   echo "Listing all installed Homebrew programs..."
@@ -32,15 +50,19 @@ install_programs() {
 # Menu picker
 echo "Brew Simple tools"
 echo "Select an option:"
-echo "1. Make a list of all installed Homebrew programs"
-echo "2. Install programs from brew_programs_list.txt"
-read -p "Enter your choice [1 or 2]: " choice
+echo "1. Install Homebrew"
+echo "2. Make a list of all installed Homebrew programs"
+echo "3. Install programs from brew_programs_list.txt"
+read -p "Enter your choice [1, 2 or 3]: " choice
 
 case $choice in
   1)
-    list_installed_programs
+    install_homebrew
     ;;
   2)
+    list_installed_programs
+    ;;
+  3)
     install_programs
     ;;
   *)
