@@ -12,13 +12,18 @@ install_programs() {
   echo "Installing programs from brew_programs_list.txt..."
   while IFS= read -r program
   do
-    echo "Installing $program..."
-    brew install "$program"
-    if [ $? -eq 0 ]; then
-      echo "$program installed successfully."
+    echo "Checking if $program is already installed..."
+    if brew list --formula | grep -q "^${program}\$"; then
+      echo "$program is already installed. Skipping."
     else
-      echo "Failed to install $program. Exiting."
-      exit 1
+      echo "Installing $program..."
+      brew install "$program"
+      if [ $? -eq 0 ]; then
+        echo "$program installed successfully."
+      else
+        echo "Failed to install $program. Exiting."
+        exit 1
+      fi
     fi
   done < brew_programs_list.txt
   echo "All programs have been installed."
