@@ -1,2 +1,27 @@
-
+# Program lists and backups
 brew_programs_list.txt
+brew_programs_backup.txt
+Brewfile.backup
+
+# Logs
+*.log
+
+# Temporary files
+*.tmp
+*.swp
+*.swo
+*~
+
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+
+# Test artifacts
+test-results/
+*.bats.out
+
+# IDE
+.vscode/
+.idea/
+*.iml
