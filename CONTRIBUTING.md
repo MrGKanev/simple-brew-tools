@@ -219,7 +219,6 @@ simple-brew-tools/
 ├── brew-tools.sh              # Main script - ALL code goes here
 ├── README.md                  # User documentation
 ├── CONTRIBUTING.md           # This file
-├── CHANGELOG.md              # Version history
 ├── LICENSE                    # MIT license
 ├── .gitignore                # Git ignore rules
 ├── .markdownlint.json        # Markdown linting config
@@ -247,10 +246,9 @@ PRs must pass all checks before merging.
 Maintainers follow this process for releases:
 
 1. Update version in `brew-tools.sh` (SCRIPT_VERSION)
-2. Update `CHANGELOG.md` with release notes
-3. Create a git tag: `git tag -a v2.0.0 -m "Release v2.0.0"`
-4. Push tag: `git push origin v2.0.0`
-5. Create GitHub release from tag with changelog
+2. Create a git tag: `git tag -a v2.0.0 -m "Release v2.0.0"`
+3. Push tag: `git push origin v2.0.0`
+4. Create GitHub release from tag with release notes
 
 ## Getting Help
 
