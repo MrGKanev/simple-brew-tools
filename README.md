@@ -111,17 +111,6 @@ bats tests/test_brew_tools.bats
 shellcheck brew-tools.sh
 ```
 
-## What's New in v2.0.0
-
-- Modern shell practices with `set -euo pipefail` and ShellCheck compliance
-- Cross-platform support (macOS Intel/ARM, Linux)
-- CLI arguments for non-interactive use
-- Brewfile support for modern package management
-- Cask support for GUI applications
-- Color-coded output with better error messages
-- Automated testing with bats-core
-- CI/CD pipeline with GitHub Actions
-
 ## Contributing
 
 Contributions are welcome! See [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines.
