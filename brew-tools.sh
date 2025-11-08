@@ -185,15 +185,15 @@ install_programs() {
     log_info "Checking if $program is already installed..."
     if brew list --formula "$program" &> /dev/null || brew list --cask "$program" &> /dev/null; then
       log_warning "$program is already installed. Skipping."
-      ((skipped++))
+      ((skipped++)) || true
     else
       log_info "Installing $program..."
       if brew install "$program"; then
         log_success "$program installed successfully"
-        ((installed++))
+        ((installed++)) || true
       else
         log_error "Failed to install $program"
-        ((failed++))
+        ((failed++)) || true
       fi
     fi
   done < "$PROGRAMS_LIST_FILE"
@@ -223,14 +223,14 @@ uninstall_programs() {
       log_info "Uninstalling $program..."
       if brew uninstall "$program"; then
         log_success "$program uninstalled successfully"
-        ((uninstalled++))
+        ((uninstalled++)) || true
       else
         log_error "Failed to uninstall $program"
-        ((failed++))
+        ((failed++)) || true
       fi
     else
       log_warning "$program is not installed. Skipping."
-      ((skipped++))
+      ((skipped++)) || true
     fi
   done < "$PROGRAMS_LIST_FILE"
 
@@ -264,7 +264,7 @@ rollback_updates() {
 
   log_warning "Rolling back to previous versions is complex and may not work for all packages"
   log_warning "Consider using Brewfile restore instead"
-  read -p "Continue with rollback? [y/N]: " -n 1 -r
+  read -rp "Continue with rollback? [y/N]: " -n 1
   echo
 
   if [[ ! $REPLY =~ ^[Yy]$ ]]; then
@@ -286,10 +286,10 @@ rollback_updates() {
     # This is a simplified approach; actual rollback is more complex
     if brew uninstall "$program" 2>/dev/null && brew install "$program"; then
       log_success "$program processed"
-      ((success++))
+      ((success++)) || true
     else
       log_warning "Could not process $program"
-      ((failed++))
+      ((failed++)) || true
     fi
   done < "$BACKUP_FILE"
 
@@ -454,7 +454,7 @@ FILES:
     $PROGRAMS_LIST_FILE         Legacy package list (one per line)
     $BACKUP_FILE    Legacy backup file
 
-For more information, visit: https://github.com/yourusername/simple-brew-tools
+For more information, visit: https://github.com/MrGKanev/simple-brew-tools
 EOF
 }
 
