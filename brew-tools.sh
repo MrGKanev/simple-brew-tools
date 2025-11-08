@@ -241,8 +241,14 @@ uninstall_programs() {
 # Function to update all installed Homebrew programs
 update_programs() {
   # Create backup before updating
-  backup_installed_programs_and_versions
-  generate_brewfile
+  if ! backup_installed_programs_and_versions; then
+    log_error "Backup failed, aborting update"
+    return 1
+  fi
+  if ! generate_brewfile; then
+    log_error "Brewfile generation failed, aborting update"
+    return 1
+  fi
 
   log_info "Updating Homebrew and all installed programs..."
 
