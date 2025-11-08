@@ -1,0 +1,99 @@
+name: CI
+
+on:
+  push:
+    branches: [ main, master, develop ]
+  pull_request:
+    branches: [ main, master, develop ]
+  workflow_dispatch:
+
+jobs:
+  shellcheck:
+    name: ShellCheck
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Run ShellCheck
+        uses: ludeeus/action-shellcheck@master
+        with:
+          scandir: '.'
+          severity: warning
+          format: gcc
+
+  test:
+    name: Test on ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+      fail-fast: false
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Install bats-core (Ubuntu)
+        if: matrix.os == 'ubuntu-latest'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y bats
+
+      - name: Install bats-core (macOS)
+        if: matrix.os == 'macos-latest'
+        run: |
+          brew install bats-core
+
+      - name: Make script executable
+        run: chmod +x brew-tools.sh
+
+      - name: Run tests
+        run: bats tests/test_brew_tools.bats
+
+      - name: Test script syntax
+        run: bash -n brew-tools.sh
+
+      - name: Test help command
+        run: ./brew-tools.sh --help
+
+      - name: Test version command
+        run: ./brew-tools.sh --version
+
+  validate-structure:
+    name: Validate Project Structure
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Check required files exist
+        run: |
+          test -f brew-tools.sh || { echo "brew-tools.sh missing"; exit 1; }
+          test -f README.md || { echo "README.md missing"; exit 1; }
+          test -f LICENSE || { echo "LICENSE missing"; exit 1; }
+          test -d tests || { echo "tests/ directory missing"; exit 1; }
+          test -f tests/test_brew_tools.bats || { echo "test_brew_tools.bats missing"; exit 1; }
+          echo "All required files present"
+
+      - name: Validate script permissions
+        run: |
+          if [ ! -x brew-tools.sh ]; then
+            echo "WARNING: brew-tools.sh is not executable"
+            exit 1
+          fi
+
+  markdown-lint:
+    name: Markdown Lint
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Lint Markdown files
+        uses: nosborn/github-action-markdown-cli@v3.3.0
+        with:
+          files: .
+          config_file: .markdownlint.json
+          ignore_files: node_modules/
+        continue-on-error: true
