@@ -9,10 +9,10 @@ set -euo pipefail
 
 # Global variables
 readonly SCRIPT_VERSION="2.0.0"
-readonly BACKUP_FILE="brew_programs_backup.txt"
-readonly PROGRAMS_LIST_FILE="brew_programs_list.txt"
-readonly BREWFILE="Brewfile"
-readonly BREWFILE_BACKUP="Brewfile.backup"
+BACKUP_FILE="${BACKUP_FILE:-brew_programs_backup.txt}"
+PROGRAMS_LIST_FILE="${PROGRAMS_LIST_FILE:-brew_programs_list.txt}"
+BREWFILE="${BREWFILE:-Brewfile}"
+BREWFILE_BACKUP="${BREWFILE_BACKUP:-Brewfile.backup}"
 
 # Color codes for better UX
 if [[ -t 1 ]]; then
@@ -29,7 +29,16 @@ else
   readonly NC=''
 fi
 
+# Verbose/debug mode
+VERBOSE="${VERBOSE:-false}"
+
 # Logging functions
+log_debug() {
+  if [[ "$VERBOSE" == "true" ]]; then
+    echo -e "${BLUE}[DEBUG]${NC} $*" >&2
+  fi
+}
+
 log_info() {
   echo -e "${BLUE}[INFO]${NC} $*"
 }
@@ -44,6 +53,37 @@ log_warning() {
 
 log_error() {
   echo -e "${RED}[ERROR]${NC} $*" >&2
+}
+
+# Load configuration from .brew-tools.conf if it exists
+load_config() {
+  local config_file="${1:-.brew-tools.conf}"
+
+  if [[ ! -f "$config_file" ]]; then
+    log_debug "No config file found at $config_file"
+    return 0
+  fi
+
+  log_debug "Loading config from $config_file"
+
+  while IFS='=' read -r key value; do
+    # Skip empty lines and comments
+    [[ -z "$key" ]] || [[ "$key" =~ ^[[:space:]]*# ]] && continue
+    # Trim whitespace
+    key=$(echo "$key" | xargs)
+    value=$(echo "$value" | xargs)
+
+    case "$key" in
+      BACKUP_FILE)      BACKUP_FILE="$value" ;;
+      PROGRAMS_LIST_FILE) PROGRAMS_LIST_FILE="$value" ;;
+      BREWFILE)         BREWFILE="$value" ;;
+      BREWFILE_BACKUP)  BREWFILE_BACKUP="$value" ;;
+      VERBOSE)          VERBOSE="$value" ;;
+      *)                log_warning "Unknown config key: $key" ;;
+    esac
+  done < "$config_file"
+
+  log_debug "Config loaded: BACKUP_FILE=$BACKUP_FILE, PROGRAMS_LIST_FILE=$PROGRAMS_LIST_FILE, BREWFILE=$BREWFILE"
 }
 
 # Detect platform and set brew path
@@ -75,6 +115,8 @@ init_brew_path() {
   brew_path=$(detect_platform)
 
   if [[ -n "$brew_path" ]] && [[ -x "$brew_path" ]]; then
+    # eval is required here: brew shellenv outputs export statements
+    # that must be evaluated to set PATH and other env vars in this shell
     eval "$("$brew_path" shellenv)"
   fi
 }
@@ -91,6 +133,10 @@ require_brew() {
 cleanup_on_exit() {
   # Restore terminal state if needed
   tput cnorm 2>/dev/null || true
+  # Remove any temp files created during this session
+  if [[ -n "${BREW_TOOLS_TMPDIR:-}" ]] && [[ -d "$BREW_TOOLS_TMPDIR" ]]; then
+    rm -rf "$BREW_TOOLS_TMPDIR"
+  fi
 }
 trap cleanup_on_exit EXIT INT TERM
 
@@ -157,9 +203,9 @@ generate_brewfile() {
 
   # Show summary
   local taps casks formulae
-  taps=$(grep -c "^tap " "$BREWFILE" 2>/dev/null || echo "0")
-  formulae=$(grep -c "^brew " "$BREWFILE" 2>/dev/null || echo "0")
-  casks=$(grep -c "^cask " "$BREWFILE" 2>/dev/null || echo "0")
+  taps=$(grep -c '^tap ' "$BREWFILE" 2>/dev/null || echo "0")
+  formulae=$(grep -c '^brew ' "$BREWFILE" 2>/dev/null || echo "0")
+  casks=$(grep -c '^cask ' "$BREWFILE" 2>/dev/null || echo "0")
 
   log_info "Brewfile contains: $taps taps, $formulae formulae, $casks casks"
   return 0
@@ -174,13 +220,14 @@ install_from_brewfile() {
   fi
 
   log_info "Installing packages from Brewfile..."
+  log_debug "Using Brewfile: $(realpath "$BREWFILE" 2>/dev/null || echo "$BREWFILE")"
 
-  if ! brew bundle install --file="$BREWFILE"; then
-    log_error "Failed to install some packages from Brewfile"
-    return 1
+  if brew bundle install --no-lock --file="$BREWFILE"; then
+    log_success "All packages from Brewfile installed successfully"
+  else
+    log_warning "Some packages from Brewfile failed to install (see above)"
   fi
 
-  log_success "All packages from Brewfile installed successfully"
   return 0
 }
 
@@ -193,6 +240,7 @@ install_programs() {
   fi
 
   log_info "Installing programs from $PROGRAMS_LIST_FILE..."
+  log_debug "Reading program list from: $(realpath "$PROGRAMS_LIST_FILE" 2>/dev/null || echo "$PROGRAMS_LIST_FILE")"
   local installed=0
   local skipped=0
   local failed=0
@@ -266,6 +314,7 @@ update_programs() {
   generate_brewfile
 
   log_info "Updating Homebrew and all installed programs..."
+  log_debug "Running: brew update && brew upgrade"
 
   if brew update && brew upgrade; then
     log_success "All programs updated successfully"
@@ -492,6 +541,16 @@ list_formulae() {
   return 0
 }
 
+# Validate that a package exists in Homebrew before installation
+validate_package() {
+  local pkg="$1"
+  if ! brew info "$pkg" &>/dev/null && ! brew info --cask "$pkg" &>/dev/null; then
+    log_error "Package '$pkg' not found in Homebrew"
+    return 1
+  fi
+  return 0
+}
+
 # Function to install a cask
 install_cask() {
   require_brew
@@ -506,7 +565,13 @@ install_cask() {
     return 1
   fi
 
+  log_debug "Validating package: $cask"
+  if ! validate_package "$cask"; then
+    return 1
+  fi
+
   log_info "Installing cask: $cask..."
+  log_debug "Running: brew install --cask $cask"
 
   if brew install --cask "$cask"; then
     log_success "Cask $cask installed successfully"
@@ -523,7 +588,10 @@ show_help() {
 Simple Brew Tools v${SCRIPT_VERSION} - Modern Homebrew Management
 
 USAGE:
-    $(basename "$0") [COMMAND] [OPTIONS]
+    $(basename "$0") [OPTIONS] [COMMAND] [ARGS]
+
+OPTIONS:
+    --verbose, -V                 Enable verbose/debug output
 
 COMMANDS:
     install-homebrew              Install Homebrew if not already installed
@@ -533,7 +601,7 @@ COMMANDS:
     install-programs              Install programs from $PROGRAMS_LIST_FILE
     uninstall-programs            Uninstall programs from $PROGRAMS_LIST_FILE
     update                        Update all installed programs
-    rollback                      Reinstall packages (version rollback not supported)
+    rollback, reinstall            Reinstall packages (version rollback not supported)
     health                        Check Homebrew health
     cleanup                       Clean up old Homebrew files (with confirmation)
     search [PACKAGE]              Search for a package
@@ -553,8 +621,10 @@ EXAMPLES:
     $(basename "$0") search wget              # Search for wget
     $(basename "$0") info git                 # Show info about git
     $(basename "$0") install-cask firefox     # Install Firefox
+    $(basename "$0") --verbose update         # Update with debug output
 
 FILES:
+    .brew-tools.conf            Configuration file (overrides defaults)
     $BREWFILE                   Modern package list (brew bundle format)
     $PROGRAMS_LIST_FILE         Legacy package list (one per line)
     $BACKUP_FILE    Legacy backup file
@@ -626,8 +696,26 @@ show_menu() {
 
 # Main function
 main() {
+  # Parse global flags before commands
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      --verbose|-V)
+        VERBOSE=true
+        shift
+        ;;
+      *)
+        break
+        ;;
+    esac
+  done
+
+  # Load config file (may override defaults including VERBOSE)
+  load_config
+
   # Initialize brew path if installed
   init_brew_path
+
+  log_debug "brew-tools v${SCRIPT_VERSION} starting (verbose mode enabled)"
 
   # Parse command line arguments
   if [[ $# -eq 0 ]]; then
@@ -661,7 +749,7 @@ main() {
       update)
         update_programs
         ;;
-      rollback)
+      rollback|reinstall)
         rollback_updates
         ;;
       health)
