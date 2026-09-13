@@ -9,7 +9,7 @@ A modern, cross-platform Homebrew management tool with support for both interact
 
 - **Cross-Platform**: Works on macOS (Intel & Apple Silicon) and Linux
 - **Interactive & CLI Modes**: Use menus or run commands directly
-- **Brewfile Support**: Modern package management with Homebrew's Brewfile format
+- **Brewfile Support**: Export and restore every dependency type supported by Homebrew Bundle
 - **Cask Management**: Install and manage GUI applications
 - **Smart Backups**: Automatic backups before updates
 - **Color-Coded Output**: Clear visual feedback
@@ -40,11 +40,13 @@ chmod +x brew-tools.sh
 ## Available Commands
 
 | Command | Description |
-|---------|-------------|
+| ------- | ----------- |
 | `install-homebrew` | Install Homebrew if not present |
 | `backup` | Backup installed programs |
-| `generate-brewfile` | Generate Brewfile from current installation |
-| `install-brewfile` | Install packages from Brewfile |
+| `export` | Export the Homebrew-supported setup to a portable Brewfile |
+| `restore` | Install everything from a Brewfile |
+| `generate-brewfile` | Alias for `export` |
+| `install-brewfile` | Alias for `restore` |
 | `update` | Update all packages |
 | `cleanup` | Clean up old files |
 | `health` | Check Homebrew health |
@@ -63,7 +65,7 @@ chmod +x brew-tools.sh
 ./brew-tools.sh update
 
 # Generate Brewfile (recommended for backups)
-./brew-tools.sh generate-brewfile
+./brew-tools.sh export
 
 # Install a GUI application
 ./brew-tools.sh install-cask firefox
@@ -81,15 +83,18 @@ The modern way to manage packages:
 
 ```bash
 # Export your current setup
-./brew-tools.sh generate-brewfile
+./brew-tools.sh export
 
 # Version control it
 git add Brewfile
 git commit -m "Add Brewfile"
 
 # Restore on another machine
-./brew-tools.sh install-brewfile
+./brew-tools.sh restore
 ```
+
+Homebrew restores currently available versions and upgrades outdated dependencies by default;
+the Brewfile is a package list, not a version lock file.
 
 ## Development
 

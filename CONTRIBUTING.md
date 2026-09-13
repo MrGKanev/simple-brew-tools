@@ -1,6 +1,7 @@
 # Contributing to Simple Brew Tools
 
-Thank you for your interest in contributing to Simple Brew Tools! This document provides guidelines and instructions for contributing.
+Thank you for your interest in contributing to Simple Brew Tools!
+This document provides guidelines and instructions for contributing.
 
 ## Code of Conduct
 
@@ -40,20 +41,26 @@ We love pull requests! Here's the process:
 
 1. **Fork the repository**
 2. **Create a feature branch**:
+
    ```bash
    git checkout -b feature/my-amazing-feature
    ```
+
 3. **Make your changes**
 4. **Test your changes** (see Testing section below)
 5. **Run code quality checks** (see Code Quality section below)
 6. **Commit with a clear message**:
+
    ```bash
    git commit -m "Add feature: description of feature"
    ```
+
 7. **Push to your fork**:
+
    ```bash
    git push origin feature/my-amazing-feature
    ```
+
 8. **Create a Pull Request** with:
    - Clear description of changes
    - Link to related issue (if applicable)
@@ -122,6 +129,7 @@ Tests use bats-core syntax. Example:
 ```
 
 Test files should:
+
 - Be placed in `tests/` directory
 - Use `.bats` extension
 - Include setup/teardown functions if needed
@@ -177,7 +185,7 @@ Follow these guidelines:
 
 Follow conventional commits format:
 
-```
+```text
 type(scope): subject
 
 body
@@ -186,6 +194,7 @@ footer
 ```
 
 Types:
+
 - `feat`: New feature
 - `fix`: Bug fix
 - `docs`: Documentation changes
@@ -196,7 +205,8 @@ Types:
 - `ci`: CI/CD changes
 
 Examples:
-```
+
+```text
 feat(cask): add support for cask installation
 
 Add install-cask command to install GUI applications.
@@ -205,7 +215,7 @@ Includes both interactive and CLI modes.
 Closes #123
 ```
 
-```
+```text
 fix(backup): handle missing backup file gracefully
 
 Previously the script would exit with error.
@@ -214,7 +224,7 @@ Now it shows a helpful message and continues.
 
 ## Project Structure
 
-```
+```text
 simple-brew-tools/
 ├── brew-tools.sh              # Main script - ALL code goes here
 ├── README.md                  # User documentation
@@ -246,8 +256,8 @@ PRs must pass all checks before merging.
 Maintainers follow this process for releases:
 
 1. Update version in `brew-tools.sh` (SCRIPT_VERSION)
-2. Create a git tag: `git tag -a v2.0.0 -m "Release v2.0.0"`
-3. Push tag: `git push origin v2.0.0`
+2. Create a git tag matching that version
+3. Push the tag
 4. Create GitHub release from tag with release notes
 
 ## Getting Help
@@ -259,6 +269,7 @@ Maintainers follow this process for releases:
 ## Recognition
 
 Contributors will be recognized in:
+
 - GitHub contributors list
 - Release notes
 - README acknowledgments (for significant contributions)
@@ -267,6 +278,6 @@ Contributors will be recognized in:
 
 By contributing, you agree that your contributions will be licensed under the MIT License.
 
-## Thank You!
+## Thank You
 
 Your contributions make Simple Brew Tools better for everyone. We appreciate your time and effort!

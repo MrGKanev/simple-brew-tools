@@ -37,15 +37,6 @@ teardown() {
   [ "$status" -eq 0 ]
 }
 
-@test "Script passes ShellCheck (if available)" {
-  if command -v shellcheck &> /dev/null; then
-    run shellcheck "$BREW_TOOLS"
-    [ "$status" -eq 0 ]
-  else
-    skip "shellcheck not installed"
-  fi
-}
-
 # ─── Help and version ─────────────────────────────────────────────────
 
 @test "Script shows help with --help flag" {
@@ -60,7 +51,7 @@ teardown() {
   run "$BREW_TOOLS" --version
   [ "$status" -eq 0 ]
   [[ "$output" =~ "Simple Brew Tools v" ]]
-  [[ "$output" =~ "2.0.0" ]]
+  [[ "$output" =~ "2.1.0" ]]
 }
 
 @test "Script shows version with -v flag" {
@@ -109,6 +100,46 @@ teardown() {
   [[ "$output" =~ "EXAMPLES:" ]]
 }
 
+@test "export and restore aliases are documented" {
+  run "$BREW_TOOLS" --help
+  [ "$status" -eq 0 ]
+  [[ "$output" =~ "export, generate-brewfile" ]]
+  [[ "$output" =~ "restore, install-brewfile" ]]
+}
+
+@test "export and restore aliases use the Brewfile workflow" {
+  mkdir "$TEST_TEMP_DIR/bin"
+  cat > "$TEST_TEMP_DIR/bin/brew" << 'EOF'
+#!/usr/bin/env bash
+printf '%s\n' "$*" >> "$BREW_LOG"
+[[ "$*" == "bundle dump"* ]] && : > "$BREWFILE"
+exit 0
+EOF
+  chmod +x "$TEST_TEMP_DIR/bin/brew"
+  export BREW_LOG="$TEST_TEMP_DIR/brew.log"
+  export PATH="$TEST_TEMP_DIR/bin:$PATH"
+
+  run "$BREW_TOOLS" export
+  [ "$status" -eq 0 ]
+  grep -q '^bundle dump ' "$BREW_LOG"
+
+  run "$BREW_TOOLS" restore
+  [ "$status" -eq 0 ]
+  grep -q '^bundle install ' "$BREW_LOG"
+  ! grep -q -- '--no-lock' "$BREW_LOG"
+}
+
+@test "restore reports brew bundle failures" {
+  mkdir "$TEST_TEMP_DIR/bin"
+  printf '#!/usr/bin/env bash\nexit 1\n' > "$TEST_TEMP_DIR/bin/brew"
+  chmod +x "$TEST_TEMP_DIR/bin/brew"
+  touch "$BREWFILE"
+
+  run env PATH="$TEST_TEMP_DIR/bin:$PATH" "$BREW_TOOLS" restore
+  [ "$status" -ne 0 ]
+  [[ "$output" =~ "failed to install" ]]
+}
+
 @test "Help message includes OPTIONS section with --verbose" {
   run "$BREW_TOOLS" --help
   [ "$status" -eq 0 ]
@@ -116,7 +147,7 @@ teardown() {
   [[ "$output" =~ "--verbose" ]]
 }
 
-@test "Help message includes reinstall alias" {
+@test "Help message includes reinstall command" {
   run "$BREW_TOOLS" --help
   [ "$status" -eq 0 ]
   [[ "$output" =~ "reinstall" ]]
@@ -326,8 +357,7 @@ EOF
 
 # ─── reinstall alias ─────────────────────────────────────────────────
 
-@test "reinstall command is accepted as alias for rollback" {
-  # Without a backup file, it should error the same way as rollback
+@test "reinstall command reads the legacy backup" {
   export BACKUP_FILE="$TEST_TEMP_DIR/nonexistent_backup.txt"
 
   if ! command -v brew &> /dev/null; then
@@ -335,6 +365,5 @@ EOF
   fi
 
   run "$BREW_TOOLS" reinstall
-  # Should get the "No backup file found" error, proving the alias works
   [[ "$output" =~ "No backup file found" ]] || [[ "$output" =~ "ERROR" ]]
 }

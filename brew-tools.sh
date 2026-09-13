@@ -1,14 +1,14 @@
 #!/usr/bin/env bash
 
 # Simple Brew Tools - Modern Homebrew Management Script
-# Version: 2.0.0
+# Version: 2.1.0
 # Updated for 2026
 
 # Safer bash execution
 set -euo pipefail
 
 # Global variables
-readonly SCRIPT_VERSION="2.0.0"
+readonly SCRIPT_VERSION="2.1.0"
 BACKUP_FILE="${BACKUP_FILE:-brew_programs_backup.txt}"
 PROGRAMS_LIST_FILE="${PROGRAMS_LIST_FILE:-brew_programs_list.txt}"
 BREWFILE="${BREWFILE:-Brewfile}"
@@ -111,6 +111,8 @@ detect_platform() {
 
 # Initialize brew path
 init_brew_path() {
+  command -v brew &> /dev/null && return 0
+
   local brew_path
   brew_path=$(detect_platform)
 
@@ -201,13 +203,6 @@ generate_brewfile() {
 
   log_success "Brewfile generated successfully"
 
-  # Show summary
-  local taps casks formulae
-  taps=$(grep -c '^tap ' "$BREWFILE" 2>/dev/null || echo "0")
-  formulae=$(grep -c '^brew ' "$BREWFILE" 2>/dev/null || echo "0")
-  casks=$(grep -c '^cask ' "$BREWFILE" 2>/dev/null || echo "0")
-
-  log_info "Brewfile contains: $taps taps, $formulae formulae, $casks casks"
   return 0
 }
 
@@ -215,17 +210,18 @@ generate_brewfile() {
 install_from_brewfile() {
   require_brew
   if [[ ! -f "$BREWFILE" ]]; then
-    log_error "Brewfile not found. Generate one first with --generate-brewfile"
+    log_error "Brewfile not found. Generate one first with: $(basename "$0") export"
     return 1
   fi
 
   log_info "Installing packages from Brewfile..."
   log_debug "Using Brewfile: $(realpath "$BREWFILE" 2>/dev/null || echo "$BREWFILE")"
 
-  if brew bundle install --no-lock --file="$BREWFILE"; then
+  if brew bundle install --file="$BREWFILE"; then
     log_success "All packages from Brewfile installed successfully"
   else
-    log_warning "Some packages from Brewfile failed to install (see above)"
+    log_error "Some packages from Brewfile failed to install (see above)"
+    return 1
   fi
 
   return 0
@@ -325,25 +321,16 @@ update_programs() {
   fi
 }
 
-# Function to rollback updates to previous versions (legacy)
-# NOTE: Homebrew no longer supports arbitrary version installation.
-# This function reinstalls packages but cannot guarantee specific versions.
-# For reliable rollback, use Brewfile with pinned versions or Time Machine.
-rollback_updates() {
+# Reinstall packages listed in the legacy backup (always installs current versions)
+reinstall_from_backup() {
   require_brew
 
   if [[ ! -f "$BACKUP_FILE" ]]; then
-    log_error "No backup file found ($BACKUP_FILE). Cannot rollback updates."
+    log_error "No backup file found ($BACKUP_FILE). Cannot reinstall packages."
     return 1
   fi
 
-  log_warning "╔════════════════════════════════════════════════════════════╗"
-  log_warning "║  IMPORTANT: Homebrew version rollback limitations          ║"
-  log_warning "╠════════════════════════════════════════════════════════════╣"
-  log_warning "║  • Homebrew no longer supports installing old versions     ║"
-  log_warning "║  • This will REINSTALL packages (latest version)           ║"
-  log_warning "║  • For true rollback, use Time Machine or Brewfile.lock    ║"
-  log_warning "╚════════════════════════════════════════════════════════════╝"
+  log_warning "This reinstalls the current package versions; it does not roll them back."
   echo ""
   log_info "Backup file contains $(wc -l < "$BACKUP_FILE" | tr -d ' ') packages"
   read -rp "Continue with reinstall? [y/N]: " -n 1
@@ -596,12 +583,12 @@ OPTIONS:
 COMMANDS:
     install-homebrew              Install Homebrew if not already installed
     backup                        Backup installed programs (legacy format)
-    generate-brewfile             Generate Brewfile (modern format)
-    install-brewfile              Install packages from Brewfile
+    export, generate-brewfile     Export everything to a portable Brewfile
+    restore, install-brewfile     Install everything from a Brewfile
     install-programs              Install programs from $PROGRAMS_LIST_FILE
     uninstall-programs            Uninstall programs from $PROGRAMS_LIST_FILE
     update                        Update all installed programs
-    rollback, reinstall            Reinstall packages (version rollback not supported)
+    reinstall                     Reinstall current packages from the legacy backup
     health                        Check Homebrew health
     cleanup                       Clean up old Homebrew files (with confirmation)
     search [PACKAGE]              Search for a package
@@ -617,7 +604,8 @@ COMMANDS:
 EXAMPLES:
     $(basename "$0")                          # Run in interactive mode
     $(basename "$0") update                   # Update all packages
-    $(basename "$0") generate-brewfile        # Generate Brewfile
+    $(basename "$0") export                   # Export this computer's Homebrew setup
+    $(basename "$0") restore                  # Restore it on another computer
     $(basename "$0") search wget              # Search for wget
     $(basename "$0") info git                 # Show info about git
     $(basename "$0") install-cask firefox     # Install Firefox
@@ -659,7 +647,7 @@ show_menu() {
   echo " 5.  Install programs from $PROGRAMS_LIST_FILE"
   echo " 6.  Uninstall programs from $PROGRAMS_LIST_FILE"
   echo " 7.  Update all installed programs"
-  echo " 8.  Rollback/Reinstall packages"
+  echo " 8.  Reinstall current packages from legacy backup"
   echo " 9.  Check Homebrew health"
   echo " 10. Clean up Homebrew"
   echo " 11. Search for a package"
@@ -680,7 +668,7 @@ show_menu() {
     5)  install_programs ;;
     6)  uninstall_programs ;;
     7)  update_programs ;;
-    8)  rollback_updates ;;
+    8)  reinstall_from_backup ;;
     9)  check_brew_health ;;
     10) cleanup_brew ;;
     11) search_package ;;
@@ -734,10 +722,10 @@ main() {
       backup)
         backup_installed_programs_and_versions
         ;;
-      generate-brewfile)
+      export|generate-brewfile)
         generate_brewfile
         ;;
-      install-brewfile)
+      restore|install-brewfile)
         install_from_brewfile
         ;;
       install-programs)
@@ -749,8 +737,8 @@ main() {
       update)
         update_programs
         ;;
-      rollback|reinstall)
-        rollback_updates
+      reinstall)
+        reinstall_from_backup
         ;;
       health)
         check_brew_health

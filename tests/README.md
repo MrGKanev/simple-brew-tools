@@ -7,11 +7,13 @@ This directory contains automated tests for the Simple Brew Tools script using [
 Install bats-core:
 
 ### macOS
+
 ```bash
 brew install bats-core
 ```
 
 ### Linux
+
 ```bash
 # Ubuntu/Debian
 sudo apt-get install bats
@@ -25,16 +27,19 @@ sudo ./install.sh /usr/local
 ## Running Tests
 
 Run all tests:
+
 ```bash
 bats tests/test_brew_tools.bats
 ```
 
 Run tests with verbose output:
+
 ```bash
 bats -t tests/test_brew_tools.bats
 ```
 
 Run all tests in the tests directory:
+
 ```bash
 bats tests/
 ```
@@ -42,6 +47,7 @@ bats tests/
 ## Test Coverage
 
 Current tests cover:
+
 - Script existence and executability
 - Help and version flags
 - Command-line argument parsing
@@ -54,6 +60,7 @@ Current tests cover:
 To add new tests, edit `test_brew_tools.bats` or create a new `.bats` file in this directory.
 
 Example test structure:
+
 ```bash
 @test "Description of what you're testing" {
   run command_to_test
