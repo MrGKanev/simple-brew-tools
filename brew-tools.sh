@@ -188,7 +188,33 @@ backup_installed_programs_and_versions() {
 # Function to generate Brewfile (modern format)
 generate_brewfile() {
   require_brew
+  local global=false no_describe=false custom_file=false
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      --global) global=true ;;
+      --no-describe) no_describe=true ;;
+      --file) [[ $# -gt 1 ]] || { log_error "--file requires a path"; return 1; }; BREWFILE="$2"; custom_file=true; shift ;;
+      --file=*) BREWFILE="${1#*=}"; custom_file=true ;;
+      *) log_error "Unknown export option: $1"; return 1 ;;
+    esac
+    shift
+  done
+  [[ "$global" == false || "$custom_file" == false ]] || { log_error "--global and --file cannot be combined"; return 1; }
   log_info "Generating Brewfile..."
+
+  local args=(bundle dump --force)
+  [[ "$no_describe" == true ]] && args+=(--no-describe)
+
+  if [[ "$global" == true ]]; then
+    local snapshot
+    snapshot=$(brew "${args[@]}" --file=-)
+    if [[ -n "$snapshot" ]] && brew "${args[@]}" --global; then
+      log_success "Global Brewfile generated successfully"
+      return 0
+    fi
+    log_error "Failed to generate a non-empty global Brewfile"
+    return 1
+  fi
 
   # Backup existing Brewfile if it exists
   if [[ -f "$BREWFILE" ]]; then
@@ -196,8 +222,14 @@ generate_brewfile() {
     log_info "Existing Brewfile backed up to $BREWFILE_BACKUP"
   fi
 
-  if ! brew bundle dump --force --file="$BREWFILE"; then
+  [[ "$custom_file" == false ]] || BREWFILE_BACKUP="${BREWFILE}.backup"
+  if ! brew "${args[@]}" --file="$BREWFILE"; then
     log_error "Failed to generate Brewfile"
+    return 1
+  fi
+
+  if [[ ! -s "$BREWFILE" ]]; then
+    log_error "Generated Brewfile is empty"
     return 1
   fi
 
@@ -209,6 +241,18 @@ generate_brewfile() {
 # Function to install from Brewfile
 install_from_brewfile() {
   require_brew
+  local check_first=false
+  local args=(bundle install)
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      --no-upgrade) args+=(--no-upgrade) ;;
+      --check-first) check_first=true ;;
+      --file) [[ $# -gt 1 ]] || { log_error "--file requires a path"; return 1; }; BREWFILE="$2"; shift ;;
+      --file=*) BREWFILE="${1#*=}" ;;
+      *) log_error "Unknown restore option: $1"; return 1 ;;
+    esac
+    shift
+  done
   if [[ ! -f "$BREWFILE" ]]; then
     log_error "Brewfile not found. Generate one first with: $(basename "$0") export"
     return 1
@@ -217,7 +261,12 @@ install_from_brewfile() {
   log_info "Installing packages from Brewfile..."
   log_debug "Using Brewfile: $(realpath "$BREWFILE" 2>/dev/null || echo "$BREWFILE")"
 
-  if brew bundle install --file="$BREWFILE"; then
+  if [[ "$check_first" == true ]] && ! brew bundle check --verbose --file="$BREWFILE"; then
+    read -rp "Continue with restore? [y/N]: " reply
+    [[ "$reply" =~ ^[Yy]$ ]] || { log_info "Restore cancelled"; return 0; }
+  fi
+
+  if brew "${args[@]}" --file="$BREWFILE"; then
     log_success "All packages from Brewfile installed successfully"
   else
     log_error "Some packages from Brewfile failed to install (see above)"
@@ -225,6 +274,42 @@ install_from_brewfile() {
   fi
 
   return 0
+}
+
+check_brewfile() {
+  require_brew
+  [[ "${1:-}" != --file=* ]] || BREWFILE="${1#*=}"
+  [[ -f "$BREWFILE" ]] || { log_error "Brewfile not found: $BREWFILE"; return 1; }
+  brew bundle check --verbose --file="$BREWFILE"
+}
+
+cleanup_brewfile() {
+  require_brew
+  [[ "${1:-}" != --file=* ]] || BREWFILE="${1#*=}"
+  [[ -f "$BREWFILE" ]] || { log_error "Brewfile not found: $BREWFILE"; return 1; }
+  brew bundle cleanup --file="$BREWFILE"
+}
+
+migrate() {
+  command -v brew &> /dev/null || install_homebrew
+  install_from_brewfile "$@"
+}
+
+show_status() {
+  require_brew
+  brew --version | head -1
+  log_info "$(brew list --formula | wc -l | tr -d ' ') formulae, $(brew list --cask | wc -l | tr -d ' ') casks"
+  brew outdated
+  [[ ! -f "$BREWFILE" ]] || brew bundle check --verbose --file="$BREWFILE" || true
+}
+
+show_completion() {
+  local commands="install-homebrew backup export restore check cleanup-brewfile migrate status health doctor cleanup search info outdated list-casks list-formulae install-cask reinstall help version"
+  case "${1:-}" in
+    bash) printf 'complete -W %q brew-tools.sh\n' "$commands" ;;
+    zsh) printf '#compdef brew-tools.sh\n_arguments "1:command:(%s)"\n' "$commands" ;;
+    *) log_error "Usage: $(basename "$0") completion bash|zsh"; return 1 ;;
+  esac
 }
 
 # Function to install programs from brew_programs_list.txt
@@ -376,7 +461,9 @@ reinstall_from_backup() {
 # Function to check Homebrew health
 check_brew_health() {
   require_brew
+  [[ -z "${1:-}" || "$1" == "--fix" ]] || { log_error "Unknown doctor option: $1"; return 1; }
   log_info "Checking Homebrew health..."
+  [[ "${1:-}" != "--fix" ]] || log_info "Suggested fixes will be shown but not run automatically."
   # brew doctor returns non-zero for warnings, which is normal
   if brew doctor; then
     log_success "Homebrew is healthy!"
@@ -583,13 +670,20 @@ OPTIONS:
 COMMANDS:
     install-homebrew              Install Homebrew if not already installed
     backup                        Backup installed programs (legacy format)
-    export, generate-brewfile     Export everything to a portable Brewfile
-    restore, install-brewfile     Install everything from a Brewfile
+    export [OPTIONS]              Export to Brewfile (--file, --global, --no-describe)
+    restore [OPTIONS]             Restore (--file, --no-upgrade, --check-first)
+    check                         Show missing Brewfile dependencies
+    cleanup-brewfile              Remove dependencies not listed in Brewfile
+    migrate [--no-upgrade]        Install Homebrew if needed, then restore
+    status                        Show Homebrew and Brewfile status
+    completion bash|zsh           Print shell completion setup
+    generate-brewfile             Alias for export
+    install-brewfile              Alias for restore
     install-programs              Install programs from $PROGRAMS_LIST_FILE
     uninstall-programs            Uninstall programs from $PROGRAMS_LIST_FILE
     update                        Update all installed programs
     reinstall                     Reinstall current packages from the legacy backup
-    health                        Check Homebrew health
+    health, doctor [--fix]        Check health and show suggested fixes
     cleanup                       Clean up old Homebrew files (with confirmation)
     search [PACKAGE]              Search for a package
     info [PACKAGE]                Show detailed package information
@@ -606,6 +700,8 @@ EXAMPLES:
     $(basename "$0") update                   # Update all packages
     $(basename "$0") export                   # Export this computer's Homebrew setup
     $(basename "$0") restore                  # Restore it on another computer
+    $(basename "$0") check                    # Check what is missing
+    $(basename "$0") migrate                  # Install Homebrew and restore
     $(basename "$0") search wget              # Search for wget
     $(basename "$0") info git                 # Show info about git
     $(basename "$0") install-cask firefox     # Install Firefox
@@ -723,10 +819,25 @@ main() {
         backup_installed_programs_and_versions
         ;;
       export|generate-brewfile)
-        generate_brewfile
+        generate_brewfile "${@:2}"
         ;;
       restore|install-brewfile)
-        install_from_brewfile
+        install_from_brewfile "${@:2}"
+        ;;
+      check)
+        check_brewfile "${2:-}"
+        ;;
+      cleanup-brewfile)
+        cleanup_brewfile "${2:-}"
+        ;;
+      migrate)
+        migrate "${@:2}"
+        ;;
+      status)
+        show_status
+        ;;
+      completion)
+        show_completion "${2:-}"
         ;;
       install-programs)
         install_programs
@@ -740,8 +851,8 @@ main() {
       reinstall)
         reinstall_from_backup
         ;;
-      health)
-        check_brew_health
+      health|doctor)
+        check_brew_health "${2:-}"
         ;;
       cleanup)
         cleanup_brew

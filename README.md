@@ -43,8 +43,13 @@ chmod +x brew-tools.sh
 | ------- | ----------- |
 | `install-homebrew` | Install Homebrew if not present |
 | `backup` | Backup installed programs |
-| `export` | Export the Homebrew-supported setup to a portable Brewfile |
-| `restore` | Install everything from a Brewfile |
+| `export [OPTIONS]` | Export to a custom/global Brewfile, optionally without descriptions |
+| `restore [OPTIONS]` | Restore with optional check, custom file or disabled upgrades |
+| `check` | Show dependencies missing from the Brewfile |
+| `cleanup-brewfile` | Remove dependencies not listed in the Brewfile, after confirmation |
+| `migrate` | Install Homebrew if needed and restore the Brewfile |
+| `status` | Show Homebrew version, package counts, outdated and missing dependencies |
+| `completion bash\|zsh` | Print shell completion setup |
 | `generate-brewfile` | Alias for `export` |
 | `install-brewfile` | Alias for `restore` |
 | `update` | Update all packages |
@@ -95,6 +100,10 @@ git commit -m "Add Brewfile"
 
 Homebrew restores currently available versions and upgrades outdated dependencies by default;
 the Brewfile is a package list, not a version lock file.
+
+Use `export --global` for Homebrew's standard `~/.Brewfile`, or `restore --no-upgrade`
+to leave already installed packages at their current versions. Run `check` before restoring,
+and use `migrate` for the complete new-computer setup.
 
 ## Development
 

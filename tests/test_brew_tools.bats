@@ -103,8 +103,9 @@ teardown() {
 @test "export and restore aliases are documented" {
   run "$BREW_TOOLS" --help
   [ "$status" -eq 0 ]
-  [[ "$output" =~ "export, generate-brewfile" ]]
-  [[ "$output" =~ "restore, install-brewfile" ]]
+  [[ "$output" =~ "export [OPTIONS]" ]]
+  [[ "$output" =~ "restore [OPTIONS]" ]]
+  [[ "$output" =~ "completion bash|zsh" ]]
 }
 
 @test "export and restore aliases use the Brewfile workflow" {
@@ -112,7 +113,11 @@ teardown() {
   cat > "$TEST_TEMP_DIR/bin/brew" << 'EOF'
 #!/usr/bin/env bash
 printf '%s\n' "$*" >> "$BREW_LOG"
-[[ "$*" == "bundle dump"* ]] && : > "$BREWFILE"
+if [[ "$*" == "bundle dump --force --file=-" ]]; then
+  printf 'brew "test"\n'
+elif [[ "$*" == "bundle dump"* ]]; then
+  printf 'brew "test"\n' > "$BREWFILE"
+fi
 exit 0
 EOF
   chmod +x "$TEST_TEMP_DIR/bin/brew"
@@ -127,6 +132,46 @@ EOF
   [ "$status" -eq 0 ]
   grep -q '^bundle install ' "$BREW_LOG"
   ! grep -q -- '--no-lock' "$BREW_LOG"
+
+  run "$BREW_TOOLS" restore --no-upgrade
+  [ "$status" -eq 0 ]
+  grep -q -- '--no-upgrade' "$BREW_LOG"
+
+  run "$BREW_TOOLS" check
+  [ "$status" -eq 0 ]
+  grep -q '^bundle check --verbose ' "$BREW_LOG"
+
+  run "$BREW_TOOLS" cleanup-brewfile
+  [ "$status" -eq 0 ]
+  grep -q '^bundle cleanup ' "$BREW_LOG"
+
+  run "$BREW_TOOLS" migrate
+  [ "$status" -eq 0 ]
+
+  run "$BREW_TOOLS" export --global
+  [ "$status" -eq 0 ]
+  grep -q '^bundle dump --force --global$' "$BREW_LOG"
+
+  run "$BREW_TOOLS" restore --invalid
+  [ "$status" -ne 0 ]
+
+  run "$BREW_TOOLS" export --file="$TEST_TEMP_DIR/custom.Brewfile" --no-describe
+  [ "$status" -eq 0 ]
+  grep -q -- '--no-describe.*--file=' "$BREW_LOG"
+
+  run "$BREW_TOOLS" restore --check-first
+  [ "$status" -eq 0 ]
+  grep -q '^bundle check --verbose ' "$BREW_LOG"
+
+  run "$BREW_TOOLS" status
+  [ "$status" -eq 0 ]
+
+  run "$BREW_TOOLS" doctor --fix
+  [ "$status" -eq 0 ]
+
+  run "$BREW_TOOLS" completion zsh
+  [ "$status" -eq 0 ]
+  [[ "$output" =~ "#compdef brew-tools.sh" ]]
 }
 
 @test "restore reports brew bundle failures" {
