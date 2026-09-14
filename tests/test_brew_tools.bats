@@ -261,13 +261,7 @@ EOF
 # ─── backup without brew ──────────────────────────────────────────────
 
 @test "backup errors when Homebrew is not available" {
-  # init_brew_path detects brew via hardcoded paths and adds it to PATH,
-  # so we can only test this on systems where brew isn't installed
-  if command -v brew &> /dev/null; then
-    skip "Homebrew is installed (cannot simulate missing brew)"
-  fi
-
-  run "$BREW_TOOLS" backup
+  run env OSTYPE=unsupported PATH="/usr/bin:/bin" "$BREW_TOOLS" backup
   [ "$status" -ne 0 ]
   [[ "$output" =~ "Homebrew is not installed" ]] || [[ "$output" =~ "ERROR" ]]
 }
