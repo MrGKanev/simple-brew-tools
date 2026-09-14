@@ -126,10 +126,14 @@ EOF
 
   run "$BREW_TOOLS" export
   [ "$status" -eq 0 ]
+  [[ "$output" =~ "Generated file: $BREWFILE" ]]
+  [[ "$output" =~ "Contents: 1 entries" ]]
+  [[ "$output" =~ "Open folder: file://$TEST_TEMP_DIR" ]]
   grep -q '^bundle dump ' "$BREW_LOG"
 
   run "$BREW_TOOLS" restore
   [ "$status" -eq 0 ]
+  [[ "$output" =~ "Restore summary: all Brewfile dependencies are satisfied" ]]
   grep -q '^bundle install ' "$BREW_LOG"
   ! grep -q -- '--no-lock' "$BREW_LOG"
 
@@ -172,6 +176,25 @@ EOF
   run "$BREW_TOOLS" completion zsh
   [ "$status" -eq 0 ]
   [[ "$output" =~ "#compdef brew-tools.sh" ]]
+}
+
+@test "files lists generated files" {
+  printf 'brew "test"\n' > "$BREWFILE"
+  run "$BREW_TOOLS" files
+  [ "$status" -eq 0 ]
+  [[ "$output" =~ "$BREWFILE" ]]
+  [[ "$output" =~ "bytes, modified" ]]
+}
+
+@test "open uses xdg-open on Linux" {
+  mkdir "$TEST_TEMP_DIR/bin"
+  printf '#!/usr/bin/env bash\nprintf "%%s" "$1" > "$OPEN_LOG"\n' > "$TEST_TEMP_DIR/bin/xdg-open"
+  chmod +x "$TEST_TEMP_DIR/bin/xdg-open"
+  export OPEN_LOG="$TEST_TEMP_DIR/open.log"
+
+  run env OSTYPE=linux-gnu PATH="$TEST_TEMP_DIR/bin:/usr/bin:/bin" "$BREW_TOOLS" open
+  [ "$status" -eq 0 ]
+  [ "$(< "$OPEN_LOG")" = "$(cd "$TEST_TEMP_DIR" && pwd -P)" ]
 }
 
 @test "restore reports brew bundle failures" {

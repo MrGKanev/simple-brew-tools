@@ -55,6 +55,52 @@ log_error() {
   echo -e "${RED}[ERROR]${NC} $*" >&2
 }
 
+absolute_path() {
+  printf '%s/%s\n' "$(cd "$(dirname "$1")" && pwd -P)" "$(basename "$1")"
+}
+
+open_folder() {
+  local folder="${1%/*}"
+  [[ "$folder" != "$1" ]] || folder="."
+  if [[ "$OSTYPE" == darwin* ]] && command -v open &> /dev/null; then
+    open "$folder"
+  elif [[ "$OSTYPE" == linux* ]] && command -v xdg-open &> /dev/null; then
+    xdg-open "$folder"
+  else
+    log_warning "Cannot open folders automatically (install xdg-utils on Linux)"
+    return 1
+  fi
+}
+
+show_generated_file() {
+  local file_path folder_url entries size reply
+  file_path="$(absolute_path "$1")"
+  folder_url="file://${file_path%/*}"
+  folder_url="${folder_url//%/%25}"
+  folder_url="${folder_url// /%20}"
+  log_info "Generated file: $file_path"
+  if [[ -f "$1" ]]; then
+    size=$(wc -c < "$1" | tr -d ' ')
+    entries=$(grep -cve '^[[:space:]]*$' -e '^[[:space:]]*#' "$1" || true)
+    log_info "Contents: $entries entries, $size bytes"
+  fi
+  log_info "Open folder: $folder_url"
+  if [[ -t 0 && -t 1 ]]; then
+    read -rp "Open the folder now? [y/N]: " reply
+    [[ "$reply" =~ ^[Yy]$ ]] && open_folder "$file_path"
+  fi
+}
+
+show_generated_files() {
+  local file found=false
+  for file in "$BREWFILE" "$BREWFILE_BACKUP" "$BACKUP_FILE" "$HOME/.Brewfile"; do
+    [[ -f "$file" ]] || continue
+    found=true
+    log_info "$(absolute_path "$file") ($(wc -c < "$file" | tr -d ' ') bytes, modified $(date -r "$file" '+%Y-%m-%d %H:%M' 2>/dev/null || stat -c '%y' "$file" | cut -d. -f1))"
+  done
+  [[ "$found" == true ]] || log_info "No generated files found"
+}
+
 # Load configuration from .brew-tools.conf if it exists
 load_config() {
   local config_file="${1:-.brew-tools.conf}"
@@ -182,6 +228,7 @@ backup_installed_programs_and_versions() {
   fi
 
   log_success "Backup completed: $BACKUP_FILE ($(wc -l < "$BACKUP_FILE" | tr -d ' ') packages)"
+  show_generated_file "$BACKUP_FILE"
   return 0
 }
 
@@ -210,6 +257,7 @@ generate_brewfile() {
     snapshot=$(brew "${args[@]}" --file=-)
     if [[ -n "$snapshot" ]] && brew "${args[@]}" --global; then
       log_success "Global Brewfile generated successfully"
+      show_generated_file "$HOME/.Brewfile"
       return 0
     fi
     log_error "Failed to generate a non-empty global Brewfile"
@@ -217,12 +265,12 @@ generate_brewfile() {
   fi
 
   # Backup existing Brewfile if it exists
+  [[ "$custom_file" == false ]] || BREWFILE_BACKUP="${BREWFILE}.backup"
   if [[ -f "$BREWFILE" ]]; then
     cp "$BREWFILE" "$BREWFILE_BACKUP"
-    log_info "Existing Brewfile backed up to $BREWFILE_BACKUP"
+    log_info "Previous file backed up to: $(absolute_path "$BREWFILE_BACKUP")"
   fi
 
-  [[ "$custom_file" == false ]] || BREWFILE_BACKUP="${BREWFILE}.backup"
   if ! brew "${args[@]}" --file="$BREWFILE"; then
     log_error "Failed to generate Brewfile"
     return 1
@@ -234,6 +282,7 @@ generate_brewfile() {
   fi
 
   log_success "Brewfile generated successfully"
+  show_generated_file "$BREWFILE"
 
   return 0
 }
@@ -268,8 +317,10 @@ install_from_brewfile() {
 
   if brew "${args[@]}" --file="$BREWFILE"; then
     log_success "All packages from Brewfile installed successfully"
+    log_info "Restore summary: all Brewfile dependencies are satisfied"
   else
     log_error "Some packages from Brewfile failed to install (see above)"
+    log_info "Restore summary: one or more dependencies failed"
     return 1
   fi
 
@@ -304,7 +355,7 @@ show_status() {
 }
 
 show_completion() {
-  local commands="install-homebrew backup export restore check cleanup-brewfile migrate status health doctor cleanup search info outdated list-casks list-formulae install-cask reinstall help version"
+  local commands="install-homebrew backup export restore check cleanup-brewfile migrate status files open health doctor cleanup search info outdated list-casks list-formulae install-cask reinstall help version"
   case "${1:-}" in
     bash) printf 'complete -W %q brew-tools.sh\n' "$commands" ;;
     zsh) printf '#compdef brew-tools.sh\n_arguments "1:command:(%s)"\n' "$commands" ;;
@@ -676,6 +727,8 @@ COMMANDS:
     cleanup-brewfile              Remove dependencies not listed in Brewfile
     migrate [--no-upgrade]        Install Homebrew if needed, then restore
     status                        Show Homebrew and Brewfile status
+    files                         List generated files, sizes, and dates
+    open                          Open the generated-files folder
     completion bash|zsh           Print shell completion setup
     generate-brewfile             Alias for export
     install-brewfile              Alias for restore
@@ -752,9 +805,11 @@ show_menu() {
   echo " 14. List installed casks (GUI apps)"
   echo " 15. List installed formulae (CLI tools)"
   echo " 16. Install a cask (GUI app)"
-  echo " 17. Exit"
+  echo " 17. Show generated files"
+  echo " 18. Open generated-files folder"
+  echo " 19. Exit"
   echo ""
-  read -rp "Enter your choice [1-17]: " choice
+  read -rp "Enter your choice [1-19]: " choice
 
   case $choice in
     1)  install_homebrew ;;
@@ -773,8 +828,10 @@ show_menu() {
     14) list_casks ;;
     15) list_formulae ;;
     16) install_cask ;;
-    17) log_info "Exiting..."; exit 0 ;;
-    *)  log_error "Invalid choice. Please select 1-17."; return 1 ;;
+    17) show_generated_files ;;
+    18) open_folder "$(absolute_path "$BREWFILE")" ;;
+    19) log_info "Exiting..."; exit 0 ;;
+    *)  log_error "Invalid choice. Please select 1-19."; return 1 ;;
   esac
 }
 
@@ -835,6 +892,12 @@ main() {
         ;;
       status)
         show_status
+        ;;
+      files)
+        show_generated_files
+        ;;
+      open)
+        open_folder "$(absolute_path "$BREWFILE")"
         ;;
       completion)
         show_completion "${2:-}"
