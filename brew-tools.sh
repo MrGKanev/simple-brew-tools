@@ -291,7 +291,7 @@ generate_brewfile() {
 install_from_brewfile() {
   require_brew
   local check_first=false
-  local args=(bundle install)
+  local args=(bundle install --verbose)
   while [[ $# -gt 0 ]]; do
     case "$1" in
       --no-upgrade) args+=(--no-upgrade) ;;
@@ -307,7 +307,8 @@ install_from_brewfile() {
     return 1
   fi
 
-  log_info "Installing packages from Brewfile..."
+  log_info "Installing packages from Brewfile (live details enabled)..."
+  log_info "Downloads or builds may take several minutes. If Password appears, macOS needs your administrator password for the cask currently shown."
   log_debug "Using Brewfile: $(realpath "$BREWFILE" 2>/dev/null || echo "$BREWFILE")"
 
   if [[ "$check_first" == true ]] && ! brew bundle check --verbose --file="$BREWFILE"; then
@@ -318,9 +319,11 @@ install_from_brewfile() {
   if brew "${args[@]}" --file="$BREWFILE"; then
     log_success "All packages from Brewfile installed successfully"
     log_info "Restore summary: all Brewfile dependencies are satisfied"
+    notify_completion "Brewfile restore completed"
   else
     log_error "Some packages from Brewfile failed to install (see above)"
     log_info "Restore summary: one or more dependencies failed"
+    notify_completion "Brewfile restore finished with errors"
     return 1
   fi
 
@@ -355,7 +358,7 @@ show_status() {
 }
 
 show_completion() {
-  local commands="install-homebrew backup export restore check cleanup-brewfile migrate status files open health doctor cleanup search info outdated list-casks list-formulae install-cask reinstall help version"
+  local commands="install-homebrew backup export restore check cleanup-brewfile migrate status files open health doctor cleanup cleanup-preview search info info-select outdated upgrade-select list list-casks list-formulae install-cask open-select uninstall-select reinstall help version"
   case "${1:-}" in
     bash) printf 'complete -W %q brew-tools.sh\n' "$commands" ;;
     zsh) printf '#compdef brew-tools.sh\n_arguments "1:command:(%s)"\n' "$commands" ;;
@@ -398,6 +401,7 @@ install_programs() {
   done < "$PROGRAMS_LIST_FILE"
 
   log_info "Installation summary: $installed installed, $skipped skipped, $failed failed"
+  notify_completion "$installed installed, $skipped skipped, $failed failed"
   return 0
 }
 
@@ -438,6 +442,58 @@ uninstall_programs() {
   return 0
 }
 
+pick_items() {
+  [[ "$OSTYPE" == darwin* ]] && command -v osascript &>/dev/null || {
+    log_error "Mouse selection is currently available on macOS only"
+    return 1
+  }
+  local title="$1" prompt="$2"
+  shift 2
+  osascript - "$title" "$prompt" "$@" <<'APPLESCRIPT'
+on run arguments
+  set dialogTitle to item 1 of arguments
+  set dialogPrompt to item 2 of arguments
+  set choices to items 3 thru -1 of arguments
+  set chosen to choose from list choices with title dialogTitle with prompt dialogPrompt with multiple selections allowed
+  if chosen is false then return ""
+  set text item delimiters of AppleScript to linefeed
+  return chosen as text
+end run
+APPLESCRIPT
+}
+
+notify_completion() {
+  [[ "$OSTYPE" == darwin* ]] && command -v osascript &>/dev/null || return 0
+  osascript -e 'on run argv' -e 'display notification (item 1 of argv) with title "Simple Brew Tools"' -e 'end run' "$1" &>/dev/null || true
+}
+
+uninstall_selected() {
+  require_brew
+
+  local packages=() item selected reply uninstalled=0 failed=0
+  while IFS= read -r item; do packages+=("Formula: $item"); done < <(brew list --formula)
+  while IFS= read -r item; do packages+=("Cask: $item"); done < <(brew list --cask)
+  ((${#packages[@]})) || { log_info "No Homebrew packages are installed"; return 0; }
+
+  selected=$(pick_items "Uninstall Homebrew packages" "Select one or more packages:" "${packages[@]}") || return 1
+  [[ -n "$selected" ]] || { log_info "Uninstall cancelled"; return 0; }
+
+  printf 'Selected:\n%s\n' "$selected"
+  read -rp "Uninstall these packages? [y/N]: " reply
+  [[ "$reply" =~ ^[Yy]$ ]] || { log_info "Uninstall cancelled"; return 0; }
+
+  while IFS= read -r item; do
+    if [[ "$item" == "Cask: "* ]]; then
+      if brew uninstall --cask "${item#Cask: }"; then ((uninstalled++)) || true; else ((failed++)) || true; fi
+    else
+      if brew uninstall --formula "${item#Formula: }"; then ((uninstalled++)) || true; else ((failed++)) || true; fi
+    fi
+  done <<< "$selected"
+
+  log_info "Uninstallation summary: $uninstalled uninstalled, $failed failed"
+  [[ "$failed" -eq 0 ]]
+}
+
 # Function to update all installed Homebrew programs
 update_programs() {
   require_brew
@@ -450,9 +506,11 @@ update_programs() {
 
   if brew update && brew upgrade; then
     log_success "All programs updated successfully"
+    notify_completion "Homebrew update completed"
     return 0
   else
     log_error "Failed to update some programs"
+    notify_completion "Homebrew update finished with errors"
     return 1
   fi
 }
@@ -666,6 +724,69 @@ list_formulae() {
   return 0
 }
 
+list_all() {
+  list_formulae
+  echo ""
+  list_casks
+}
+
+upgrade_selected() {
+  require_brew
+  local packages=() item selected reply upgraded=0 failed=0
+  while IFS= read -r item; do packages+=("Formula: $item"); done < <(brew outdated --formula)
+  while IFS= read -r item; do packages+=("Cask: $item"); done < <(brew outdated --cask)
+  ((${#packages[@]})) || { log_success "All packages are up to date!"; return 0; }
+
+  selected=$(pick_items "Upgrade Homebrew packages" "Select one or more packages:" "${packages[@]}") || return 1
+  [[ -n "$selected" ]] || { log_info "Upgrade cancelled"; return 0; }
+  printf 'Selected:\n%s\n' "$selected"
+  read -rp "Upgrade these packages? [y/N]: " reply
+  [[ "$reply" =~ ^[Yy]$ ]] || { log_info "Upgrade cancelled"; return 0; }
+
+  while IFS= read -r item; do
+    if [[ "$item" == "Cask: "* ]]; then
+      if brew upgrade --cask "${item#Cask: }"; then ((upgraded++)) || true; else ((failed++)) || true; fi
+    else
+      if brew upgrade --formula "${item#Formula: }"; then ((upgraded++)) || true; else ((failed++)) || true; fi
+    fi
+  done <<< "$selected"
+  log_info "Upgrade summary: $upgraded upgraded, $failed failed"
+  notify_completion "$upgraded upgraded, $failed failed"
+  [[ "$failed" -eq 0 ]]
+}
+
+info_selected() {
+  require_brew
+  local packages=() item selected
+  while IFS= read -r item; do packages+=("Formula: $item"); done < <(brew list --formula)
+  while IFS= read -r item; do packages+=("Cask: $item"); done < <(brew list --cask)
+  ((${#packages[@]})) || { log_info "No Homebrew packages are installed"; return 0; }
+
+  selected=$(pick_items "Homebrew package info" "Select one or more packages:" "${packages[@]}") || return 1
+  [[ -n "$selected" ]] || { log_info "No package selected"; return 0; }
+  while IFS= read -r item; do
+    echo ""
+    if [[ "$item" == "Cask: "* ]]; then brew info --cask "${item#Cask: }"; else brew info --formula "${item#Formula: }"; fi
+  done <<< "$selected"
+}
+
+open_selected() {
+  require_brew
+  [[ "$OSTYPE" == darwin* ]] || { log_error "Opening GUI applications is available on macOS only"; return 1; }
+  local casks=() cask selected app_path opened=0 failed=0
+  while IFS= read -r cask; do casks+=("$cask"); done < <(brew list --cask)
+  ((${#casks[@]})) || { log_info "No casks are installed"; return 0; }
+
+  selected=$(pick_items "Open applications" "Select one or more applications:" "${casks[@]}") || return 1
+  [[ -n "$selected" ]] || { log_info "No application selected"; return 0; }
+  while IFS= read -r cask; do
+    app_path=$(brew list --cask "$cask" 2>/dev/null | awk '/\.app$/ { print; exit }')
+    if [[ -n "$app_path" ]] && open "$app_path"; then ((opened++)) || true; else log_warning "No application found for $cask"; ((failed++)) || true; fi
+  done <<< "$selected"
+  log_info "Open summary: $opened opened, $failed failed"
+  [[ "$failed" -eq 0 ]]
+}
+
 # Validate that a package exists in Homebrew before installation
 validate_package() {
   local pkg="$1"
@@ -700,9 +821,11 @@ install_cask() {
 
   if brew install --cask "$cask"; then
     log_success "Cask $cask installed successfully"
+    notify_completion "$cask installed successfully"
     return 0
   else
     log_error "Failed to install cask $cask"
+    notify_completion "$cask installation failed"
     return 1
   fi
 }
@@ -738,12 +861,18 @@ COMMANDS:
     reinstall                     Reinstall current packages from the legacy backup
     health, doctor [--fix]        Check health and show suggested fixes
     cleanup                       Clean up old Homebrew files (with confirmation)
+    cleanup-preview               Preview cleanup, then optionally confirm it
     search [PACKAGE]              Search for a package
     info [PACKAGE]                Show detailed package information
     outdated                      List outdated packages
+    upgrade-select                Pick outdated packages to upgrade with the mouse (macOS)
+    list                          List all installed formulae and casks
     list-casks                    List installed casks (GUI apps)
     list-formulae                 List installed formulae (CLI tools)
     install-cask [CASK]           Install a cask (GUI application)
+    info-select                   Pick installed packages and show their details (macOS)
+    open-select                   Pick installed GUI applications to open (macOS)
+    uninstall-select              Pick packages to uninstall with the mouse (macOS)
     interactive                   Run in interactive menu mode (default)
     help, --help, -h              Show this help message
     version, --version, -v        Show version information
@@ -807,9 +936,13 @@ show_menu() {
   echo " 16. Install a cask (GUI app)"
   echo " 17. Show generated files"
   echo " 18. Open generated-files folder"
-  echo " 19. Exit"
+  echo " 19. Select packages to uninstall (macOS)"
+  echo " 20. Select outdated packages to upgrade (macOS)"
+  echo " 21. Select packages and show info (macOS)"
+  echo " 22. Select GUI applications to open (macOS)"
+  echo " 0.  Exit"
   echo ""
-  read -rp "Enter your choice [1-19]: " choice
+  read -rp "Enter your choice [0-22]: " choice
 
   case $choice in
     1)  install_homebrew ;;
@@ -830,8 +963,12 @@ show_menu() {
     16) install_cask ;;
     17) show_generated_files ;;
     18) open_folder "$(absolute_path "$BREWFILE")" ;;
-    19) log_info "Exiting..."; exit 0 ;;
-    *)  log_error "Invalid choice. Please select 1-19."; return 1 ;;
+    19) uninstall_selected ;;
+    20) upgrade_selected ;;
+    21) info_selected ;;
+    22) open_selected ;;
+    0)  log_info "Exiting..."; exit 0 ;;
+    *)  log_error "Invalid choice. Please select 0-22."; return 1 ;;
   esac
 }
 
@@ -917,7 +1054,7 @@ main() {
       health|doctor)
         check_brew_health "${2:-}"
         ;;
-      cleanup)
+      cleanup|cleanup-preview)
         cleanup_brew
         ;;
       search)
@@ -929,6 +1066,12 @@ main() {
       outdated)
         list_outdated_packages
         ;;
+      upgrade-select)
+        upgrade_selected
+        ;;
+      list)
+        list_all
+        ;;
       list-casks)
         list_casks
         ;;
@@ -937,6 +1080,15 @@ main() {
         ;;
       install-cask)
         install_cask "${2:-}"
+        ;;
+      info-select)
+        info_selected
+        ;;
+      open-select)
+        open_selected
+        ;;
+      uninstall-select)
+        uninstall_selected
         ;;
       interactive)
         while true; do

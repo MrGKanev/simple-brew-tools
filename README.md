@@ -54,12 +54,18 @@ chmod +x brew-tools.sh
 | `install-brewfile` | Alias for `restore` |
 | `update` | Update all packages |
 | `cleanup` | Clean up old files |
+| `cleanup-preview` | Preview cleanup and optionally confirm it |
 | `health` | Check Homebrew health |
 | `search [PACKAGE]` | Search for a package |
 | `outdated` | List outdated packages |
+| `upgrade-select` | Pick outdated packages to upgrade with the mouse (macOS) |
+| `list` | List all installed formulae and casks |
 | `list-casks` | List installed GUI apps |
 | `list-formulae` | List installed CLI tools |
 | `install-cask [CASK]` | Install a GUI application |
+| `info-select` | Pick installed packages and show their details (macOS) |
+| `open-select` | Pick installed GUI applications to open (macOS) |
+| `uninstall-select` | Pick formulae and casks to uninstall with the mouse (macOS) |
 | `help`, `--help`, `-h` | Show help |
 | `version`, `--version`, `-v` | Show version |
 

@@ -89,6 +89,7 @@ teardown() {
   [[ "$output" =~ "cleanup" ]]
   [[ "$output" =~ "search" ]]
   [[ "$output" =~ "outdated" ]]
+  [[ "$output" =~ "list                          List all installed" ]]
   [[ "$output" =~ "list-casks" ]]
   [[ "$output" =~ "list-formulae" ]]
   [[ "$output" =~ "install-cask" ]]
@@ -135,6 +136,8 @@ EOF
   [ "$status" -eq 0 ]
   [[ "$output" =~ "Restore summary: all Brewfile dependencies are satisfied" ]]
   grep -q '^bundle install ' "$BREW_LOG"
+  grep -q '^bundle install --verbose ' "$BREW_LOG"
+  [[ "$output" =~ "If Password appears" ]]
   ! grep -q -- '--no-lock' "$BREW_LOG"
 
   run "$BREW_TOOLS" restore --no-upgrade
@@ -428,4 +431,60 @@ EOF
 
   run "$BREW_TOOLS" reinstall
   [[ "$output" =~ "No backup file found" ]] || [[ "$output" =~ "ERROR" ]]
+}
+
+@test "uninstall-select removes the packages chosen in the macOS picker" {
+  mkdir "$TEST_TEMP_DIR/bin"
+  cat > "$TEST_TEMP_DIR/bin/brew" << 'EOF'
+#!/usr/bin/env bash
+[[ "$*" == "list --formula" ]] && printf 'wget\n'
+[[ "$*" == "list --cask" ]] && printf 'firefox\n'
+[[ "$1" == "uninstall" ]] && printf '%s\n' "$*" >> "$BREW_LOG"
+EOF
+  cat > "$TEST_TEMP_DIR/bin/osascript" << 'EOF'
+#!/usr/bin/env bash
+printf 'Formula: wget\nCask: firefox\n'
+EOF
+  chmod +x "$TEST_TEMP_DIR/bin/brew" "$TEST_TEMP_DIR/bin/osascript"
+  export BREW_LOG="$TEST_TEMP_DIR/brew.log"
+
+  run bash -c "printf 'y\\n' | env OSTYPE=darwin PATH='$TEST_TEMP_DIR/bin:/usr/bin:/bin' '$BREW_TOOLS' uninstall-select"
+  [ "$status" -eq 0 ]
+  grep -q '^uninstall --formula wget$' "$BREW_LOG"
+  grep -q '^uninstall --cask firefox$' "$BREW_LOG"
+  [[ "$output" =~ "2 uninstalled, 0 failed" ]]
+}
+
+@test "macOS pickers upgrade, inspect, and open selected packages" {
+  mkdir "$TEST_TEMP_DIR/bin"
+  cat > "$TEST_TEMP_DIR/bin/brew" << 'EOF'
+#!/usr/bin/env bash
+case "$*" in
+  "outdated --formula"|"list --formula") printf 'wget\n' ;;
+  "outdated --cask"|"list --cask") printf 'firefox\n' ;;
+  "list --cask firefox") printf '/Applications/Firefox.app\n' ;;
+  upgrade*|info*) printf '%s\n' "$*" >> "$BREW_LOG" ;;
+esac
+EOF
+  cat > "$TEST_TEMP_DIR/bin/osascript" << 'EOF'
+#!/usr/bin/env bash
+[[ "$1" == "-e" ]] || printf '%b' "$PICK_RESULT"
+EOF
+  printf '#!/usr/bin/env bash\nprintf "%%s\\n" "$1" >> "$OPEN_LOG"\n' > "$TEST_TEMP_DIR/bin/open"
+  chmod +x "$TEST_TEMP_DIR/bin/brew" "$TEST_TEMP_DIR/bin/osascript" "$TEST_TEMP_DIR/bin/open"
+  export BREW_LOG="$TEST_TEMP_DIR/brew.log" OPEN_LOG="$TEST_TEMP_DIR/open.log"
+  local picker_env="OSTYPE=darwin PATH=$TEST_TEMP_DIR/bin:/usr/bin:/bin"
+
+  run bash -c "printf 'y\\n' | env $picker_env PICK_RESULT='Formula: wget\\nCask: firefox\\n' '$BREW_TOOLS' upgrade-select"
+  [ "$status" -eq 0 ]
+  grep -q '^upgrade --formula wget$' "$BREW_LOG"
+  grep -q '^upgrade --cask firefox$' "$BREW_LOG"
+
+  run env $picker_env PICK_RESULT='Formula: wget' "$BREW_TOOLS" info-select
+  [ "$status" -eq 0 ]
+  grep -q '^info --formula wget$' "$BREW_LOG"
+
+  run env $picker_env PICK_RESULT=firefox "$BREW_TOOLS" open-select
+  [ "$status" -eq 0 ]
+  [ "$(< "$OPEN_LOG")" = "/Applications/Firefox.app" ]
 }
